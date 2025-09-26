@@ -1268,7 +1268,7 @@ async def check_subscription_command(update: Update, context):
         await update.message.reply_text(f"خطأ: {e}")
 
 async def admin_stats_command(update: Update, context):
-    """عرض إحصائيات البوت"""
+    """📊 لوحة التحكم الرئيسية - إحصائيات شاملة"""
     if str(update.effective_user.id) != ADMIN_CHAT_ID:
         return
 
@@ -1293,31 +1293,452 @@ async def admin_stats_command(update: Update, context):
             cursor.execute("SELECT COUNT(*) FROM rides WHERE status = 'pending'")
             pending_rides = cursor.fetchone()[0]
 
+            cursor.execute("SELECT COUNT(*) FROM rides WHERE status = 'in_progress'")
+            active_rides = cursor.fetchone()[0]
+
             cursor.execute("SELECT COUNT(*) FROM rides WHERE status = 'completed'")
             completed_rides = cursor.fetchone()[0]
 
-            # الاشتراكات النشطة
+            # الاشتراكات
             cursor.execute("""
                 SELECT COUNT(*) FROM subscriptions
                 WHERE is_active = 1 AND datetime(end_date) > datetime('now')
             """)
             active_subscriptions = cursor.fetchone()[0]
 
-            await update.message.reply_text(
-                f"📊 إحصائيات البوت:\n\n"
-                f"👥 المستخدمون:\n"
-                f"   • الإجمالي: {total_users}\n"
-                f"   • العملاء: {clients}\n"
-                f"   • الكباتن: {captains}\n\n"
-                f"🚗 الرحلات:\n"
-                f"   • الإجمالي: {total_rides}\n"
-                f"   • في الانتظار: {pending_rides}\n"
-                f"   • مكتملة: {completed_rides}\n\n"
-                f"💳 الاشتراكات النشطة: {active_subscriptions}"
-            )
+            cursor.execute("""
+                SELECT COUNT(*) FROM subscriptions
+                WHERE is_active = 0 OR datetime(end_date) <= datetime('now')
+            """)
+            expired_subscriptions = cursor.fetchone()[0]
+
+            # المدفوعات
+            cursor.execute("SELECT COUNT(*) FROM payments WHERE payment_status = 'pending'")
+            pending_payments = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM payments WHERE payment_status = 'completed'")
+            completed_payments = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE payment_status = 'completed'")
+            total_revenue = cursor.fetchone()[0]
+
+            # المدفوعات النقدية مقابل الرقمية
+            cursor.execute("SELECT COUNT(*) FROM payments WHERE payment_method = 'cash' AND payment_status = 'completed'")
+            cash_payments = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM payments WHERE payment_method != 'cash' AND payment_status = 'completed'")
+            digital_payments = cursor.fetchone()[0]
+
+            # الإحصائيات اليومية
+            cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(created_at) = DATE('now')")
+            today_users = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM rides WHERE DATE(created_at) = DATE('now')")
+            today_rides = cursor.fetchone()[0]
+
+            # رسالة الإحصائيات الشاملة
+            stats_message = f"""📊 **لوحة التحكم الرئيسية**
+━━━━━━━━━━━━━━━━━━━━━━
+
+👥 **المستخدمون:**
+   • الإجمالي: {total_users}
+   • العملاء: {clients}
+   • الكباتن: {captains}
+   • انضموا اليوم: {today_users}
+
+🚗 **الرحلات:**
+   • الإجمالي: {total_rides}
+   • معلقة: {pending_rides}
+   • نشطة: {active_rides}
+   • مكتملة: {completed_rides}
+   • طلبات اليوم: {today_rides}
+
+💳 **الاشتراكات:**
+   • نشطة: {active_subscriptions}
+   • منتهية: {expired_subscriptions}
+
+💰 **المدفوعات:**
+   • معلقة: {pending_payments}
+   • مكتملة: {completed_payments}
+   • إجمالي الإيرادات: {total_revenue:.2f} ريال
+
+📊 **طرق الدفع:**
+   • نقدية: {cash_payments}
+   • رقمية: {digital_payments}
+
+━━━━━━━━━━━━━━━━━━━━━━
+⚡ أوامر لوحة التحكم:
+• `/recent_rides` - آخر الرحلات
+• `/recent_users` - آخر المستخدمين
+• `/find_user [ID]` - البحث عن مستخدم
+• `/live_activity` - النشاط المباشر
+• `/revenue_report` - تقرير الإيرادات
+• `/pending_payments` - المدفوعات المعلقة
+• `/admin_help` - دليل جميع الأوامر 📚"""
+
+            await update.message.reply_text(stats_message)
 
     except Exception as e:
         await update.message.reply_text(f"خطأ في جلب الإحصائيات: {e}")
+
+# ============ أوامر لوحة التحكم المتقدمة ============
+
+async def recent_rides_command(update: Update, context):
+    """📋 عرض آخر الرحلات مع التفاصيل"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    try:
+        with sqlite3.connect(db.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT r.ride_id, r.status, r.created_at,
+                       client.first_name as client_name, client.user_id as client_id,
+                       captain.first_name as captain_name, captain.user_id as captain_id,
+                       r.pickup_location, r.destination
+                FROM rides r
+                JOIN users client ON r.client_id = client.user_id
+                LEFT JOIN users captain ON r.captain_id = captain.user_id
+                ORDER BY r.created_at DESC
+                LIMIT 10
+            """)
+            rides = cursor.fetchall()
+
+            if not rides:
+                await update.message.reply_text("📭 لا توجد رحلات بعد")
+                return
+
+            message = "📋 **آخر 10 رحلات:**\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+            for ride in rides:
+                status_emoji = {"pending": "⏳", "in_progress": "🚗", "completed": "✅", "cancelled": "❌"}.get(ride[1], "❓")
+                captain_info = f"👨‍✈️ {ride[5]} ({ride[6]})" if ride[5] else "👨‍✈️ لم يتم التعيين بعد"
+
+                message += f"""🆔 **الرحلة #{ride[0]}** {status_emoji}
+👤 العميل: {ride[3]} ({ride[4]})
+{captain_info}
+📍 من: {ride[7] or 'لم يحدد'}
+🎯 إلى: {ride[8] or 'لم يحدد'}
+⏰ {ride[2][:16]}
+
+"""
+
+            await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ في جلب الرحلات: {e}")
+
+async def recent_users_command(update: Update, context):
+    """👥 عرض آخر المستخدمين المنضمين"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    try:
+        with sqlite3.connect(db.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT user_id, username, first_name, user_type, created_at
+                FROM users
+                ORDER BY created_at DESC
+                LIMIT 15
+            """)
+            users = cursor.fetchall()
+
+            if not users:
+                await update.message.reply_text("📭 لا يوجد مستخدمون بعد")
+                return
+
+            message = "👥 **آخر 15 مستخدم انضموا:**\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+            for user in users:
+                type_emoji = "👤" if user[3] == "client" else "👨‍✈️" if user[3] == "captain" else "❓"
+                username = f"@{user[1]}" if user[1] else "بدون معرف"
+
+                message += f"""{type_emoji} **{user[2]}** ({user[0]})
+📱 {username}
+📅 {user[4][:16]}
+
+"""
+
+            await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ في جلب المستخدمين: {e}")
+
+async def find_user_command(update: Update, context):
+    """🔍 البحث عن مستخدم بالمعرف وعرض تفاصيله"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("🔍 **البحث عن مستخدم**\n\nالاستخدام: `/find_user <معرف_المستخدم>`\nمثال: `/find_user 123456789`")
+        return
+
+    try:
+        user_id = int(context.args[0])
+
+        with sqlite3.connect(db.db_path) as conn:
+            cursor = conn.cursor()
+
+            # معلومات المستخدم الأساسية
+            cursor.execute("""
+                SELECT user_id, username, first_name, last_name, user_type, created_at
+                FROM users WHERE user_id = ?
+            """, (user_id,))
+            user = cursor.fetchone()
+
+            if not user:
+                await update.message.reply_text(f"❌ لم يتم العثور على مستخدم بالمعرف: {user_id}")
+                return
+
+            # إحصائيات الرحلات
+            cursor.execute("SELECT COUNT(*) FROM rides WHERE client_id = ?", (user_id,))
+            rides_as_client = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM rides WHERE captain_id = ?", (user_id,))
+            rides_as_captain = cursor.fetchone()[0]
+
+            # الاشتراكات
+            cursor.execute("""
+                SELECT COUNT(*) FROM subscriptions
+                WHERE user_id = ? AND is_active = 1 AND datetime(end_date) > datetime('now')
+            """, (user_id,))
+            active_subscription = cursor.fetchone()[0]
+
+            # المدفوعات
+            cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM payments WHERE user_id = ? AND payment_status = 'completed'", (user_id,))
+            payment_stats = cursor.fetchone()
+
+            # آخر نشاط
+            cursor.execute("""
+                SELECT created_at FROM rides
+                WHERE client_id = ? OR captain_id = ?
+                ORDER BY created_at DESC LIMIT 1
+            """, (user_id, user_id))
+            last_activity = cursor.fetchone()
+
+            type_emoji = "👤" if user[4] == "client" else "👨‍✈️" if user[4] == "captain" else "❓"
+            username = f"@{user[1]}" if user[1] else "بدون معرف"
+            full_name = f"{user[2]} {user[3] or ''}".strip()
+
+            message = f"""🔍 **تفاصيل المستخدم**
+━━━━━━━━━━━━━━━━━━━━━━
+
+{type_emoji} **{full_name}**
+🆔 المعرف: `{user[0]}`
+📱 اسم المستخدم: {username}
+👥 النوع: {"عميل" if user[4] == "client" else "كابتن" if user[4] == "captain" else "غير محدد"}
+📅 انضم في: {user[5][:16]}
+
+📊 **الإحصائيات:**
+🚗 رحلات كعميل: {rides_as_client}
+👨‍✈️ رحلات ككابتن: {rides_as_captain}
+💳 اشتراك نشط: {"✅ نعم" if active_subscription else "❌ لا"}
+💰 إجمالي المدفوعات: {payment_stats[1]:.2f} ريال ({payment_stats[0]} دفعة)
+
+⏰ **آخر نشاط:** {last_activity[0][:16] if last_activity else "لا يوجد نشاط"}"""
+
+            await update.message.reply_text(message)
+
+    except ValueError:
+        await update.message.reply_text("❌ يرجى إدخال معرف مستخدم صحيح (أرقام فقط)")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ في البحث: {e}")
+
+async def live_activity_command(update: Update, context):
+    """⚡ النشاط المباشر - ما يحدث الآن"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    try:
+        with sqlite3.connect(db.db_path) as conn:
+            cursor = conn.cursor()
+
+            # الرحلات النشطة
+            cursor.execute("""
+                SELECT r.ride_id, client.first_name as client_name,
+                       captain.first_name as captain_name, r.created_at
+                FROM rides r
+                JOIN users client ON r.client_id = client.user_id
+                LEFT JOIN users captain ON r.captain_id = captain.user_id
+                WHERE r.status IN ('pending', 'in_progress')
+                ORDER BY r.created_at DESC
+            """)
+            active_rides = cursor.fetchall()
+
+            # المدفوعات المعلقة
+            cursor.execute("""
+                SELECT p.payment_id, u.first_name, p.amount, p.payment_type, p.created_at
+                FROM payments p
+                JOIN users u ON p.user_id = u.user_id
+                WHERE p.payment_status = 'pending'
+                ORDER BY p.created_at DESC
+                LIMIT 5
+            """)
+            pending_payments = cursor.fetchall()
+
+            # المستخدمين الجدد اليوم
+            cursor.execute("""
+                SELECT first_name, user_type, created_at
+                FROM users
+                WHERE DATE(created_at) = DATE('now')
+                ORDER BY created_at DESC
+                LIMIT 5
+            """)
+            new_users_today = cursor.fetchall()
+
+            message = "⚡ **النشاط المباشر**\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+            # الرحلات النشطة
+            if active_rides:
+                message += "🚗 **الرحلات النشطة:**\n"
+                for ride in active_rides[:5]:
+                    captain_name = ride[2] if ride[2] else "لم يتم التعيين"
+                    message += f"• #{ride[0]} - {ride[1]} ↔️ {captain_name}\n"
+                message += "\n"
+            else:
+                message += "🚗 **لا توجد رحلات نشطة حالياً**\n\n"
+
+            # المدفوعات المعلقة
+            if pending_payments:
+                message += "💰 **مدفوعات تحتاج موافقة:**\n"
+                for payment in pending_payments:
+                    message += f"• {payment[1]} - {payment[2]:.0f} ريال ({payment[3]})\n"
+                message += "\n"
+            else:
+                message += "💰 **لا توجد مدفوعات معلقة**\n\n"
+
+            # المستخدمين الجدد
+            if new_users_today:
+                message += "👥 **انضموا اليوم:**\n"
+                for user in new_users_today:
+                    type_emoji = "👤" if user[1] == "client" else "👨‍✈️"
+                    message += f"• {type_emoji} {user[0]} - {user[2][:11]}\n"
+            else:
+                message += "👥 **لم ينضم أحد اليوم بعد**"
+
+            await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ في جلب النشاط المباشر: {e}")
+
+async def revenue_report_command(update: Update, context):
+    """💰 تقرير الإيرادات التفصيلي"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    try:
+        with sqlite3.connect(db.db_path) as conn:
+            cursor = conn.cursor()
+
+            # إجمالي الإيرادات
+            cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE payment_status = 'completed'")
+            total_revenue = cursor.fetchone()[0]
+
+            # الإيرادات حسب طريقة الدفع
+            cursor.execute("""
+                SELECT payment_method, COUNT(*), COALESCE(SUM(amount), 0)
+                FROM payments
+                WHERE payment_status = 'completed'
+                GROUP BY payment_method
+                ORDER BY SUM(amount) DESC
+            """)
+            payment_methods = cursor.fetchall()
+
+            # الإيرادات حسب نوع الدفع
+            cursor.execute("""
+                SELECT payment_type, COUNT(*), COALESCE(SUM(amount), 0)
+                FROM payments
+                WHERE payment_status = 'completed'
+                GROUP BY payment_type
+                ORDER BY SUM(amount) DESC
+            """)
+            payment_types = cursor.fetchall()
+
+            # إيرادات آخر 7 أيام
+            cursor.execute("""
+                SELECT DATE(created_at) as day, COALESCE(SUM(amount), 0)
+                FROM payments
+                WHERE payment_status = 'completed'
+                AND DATE(created_at) >= DATE('now', '-7 days')
+                GROUP BY DATE(created_at)
+                ORDER BY day DESC
+            """)
+            daily_revenue = cursor.fetchall()
+
+            message = f"""💰 **تقرير الإيرادات التفصيلي**
+━━━━━━━━━━━━━━━━━━━━━━
+
+💵 **إجمالي الإيرادات:** {total_revenue:.2f} ريال
+
+📊 **حسب طريقة الدفع:**"""
+
+            for method in payment_methods:
+                method_name = {"cash": "نقدي", "stc": "STC Pay", "bank": "حوالة بنكية", "urpay": "urpay", "mada": "مدى"}.get(method[0], method[0])
+                percentage = (method[2] / total_revenue * 100) if total_revenue > 0 else 0
+                message += f"\n• {method_name}: {method[2]:.2f} ريال ({method[1]} دفعة) - {percentage:.1f}%"
+
+            message += "\n\n📈 **حسب نوع الدفع:**"
+            for ptype in payment_types:
+                type_name = {"subscription_payment": "اشتراكات", "ride_payment": "رحلات"}.get(ptype[0], ptype[0])
+                percentage = (ptype[2] / total_revenue * 100) if total_revenue > 0 else 0
+                message += f"\n• {type_name}: {ptype[2]:.2f} ريال ({ptype[1]} دفعة) - {percentage:.1f}%"
+
+            message += "\n\n📅 **آخر 7 أيام:**"
+            for day in daily_revenue:
+                message += f"\n• {day[0]}: {day[1]:.2f} ريال"
+
+            await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ في جلب تقرير الإيرادات: {e}")
+
+async def admin_help_command(update: Update, context):
+    """📚 دليل أوامر الإدارة الشامل"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    help_message = """📚 **دليل أوامر الإدارة الشامل**
+━━━━━━━━━━━━━━━━━━━━━━
+
+📊 **لوحة التحكم الرئيسية:**
+• `/stats` - إحصائيات شاملة ولوحة التحكم الرئيسية
+
+🔍 **المراقبة والمتابعة:**
+• `/live_activity` - النشاط المباشر (ما يحدث الآن)
+• `/recent_rides` - آخر 10 رحلات مع التفاصيل
+• `/recent_users` - آخر 15 مستخدم انضموا
+• `/find_user <ID>` - البحث عن مستخدم بالمعرف
+
+💰 **التقارير المالية:**
+• `/revenue_report` - تقرير الإيرادات التفصيلي
+• `/pending_payments` - المدفوعات المعلقة
+• `/approve_payment <ID>` - تأكيد دفعة
+• `/reject_payment <ID> <السبب>` - رفض دفعة
+
+👥 **إدارة المستخدمين:**
+• `/list_users [all|clients|captains]` - قائمة المستخدمين
+• `/add_subscription <ID> <أيام> [المبلغ]` - إضافة اشتراك
+• `/check_subscription <ID>` - فحص اشتراك مستخدم
+
+🛡️ **الإشراف والمحتوى:**
+• `/add_banned_word <كلمة>` - إضافة كلمة محظورة
+• `/remove_banned_word <كلمة>` - إزالة كلمة محظورة
+• `/list_banned_words` - عرض الكلمات المحظورة
+
+📅 **الرسائل المجدولة:**
+• `/schedule <ساعات> <أيام> <النص>` - جدولة رسالة
+
+━━━━━━━━━━━━━━━━━━━━━━
+💡 **نصائح:**
+• ابدأ دائماً بـ `/stats` للحصول على نظرة شاملة
+• استخدم `/live_activity` لمتابعة النشاط اللحظي
+• `/find_user` مفيد جداً لحل مشاكل المستخدمين
+• تحقق من `/pending_payments` بانتظام"""
+
+    await update.message.reply_text(help_message)
+
+# ============ نهاية أوامر لوحة التحكم ============
 
 async def list_users_command(update: Update, context):
     """عرض قائمة المستخدمين"""
@@ -1612,6 +2033,14 @@ def main():
         app.add_handler(CommandHandler("approve_payment", approve_payment_command))
         app.add_handler(CommandHandler("reject_payment", reject_payment_command))
         app.add_handler(CommandHandler("pending_payments", pending_payments_command))
+
+        # أوامر لوحة التحكم المتقدمة
+        app.add_handler(CommandHandler("recent_rides", recent_rides_command))
+        app.add_handler(CommandHandler("recent_users", recent_users_command))
+        app.add_handler(CommandHandler("find_user", find_user_command))
+        app.add_handler(CommandHandler("live_activity", live_activity_command))
+        app.add_handler(CommandHandler("revenue_report", revenue_report_command))
+        app.add_handler(CommandHandler("admin_help", admin_help_command))
 
         # معالج رسائل المجموعة (للإشراف)
         app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, group_message_handler))
