@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from telegram.error import BadRequest
 from database import Database
 from moderation import ModerationSystem
-from scheduler import MessageScheduler
+# from scheduler import MessageScheduler
 
 # تحميل متغيرات البيئة من ملف .env
 load_dotenv()
@@ -2139,16 +2139,16 @@ def main():
 
         # بدء جدولة الرسائل والمهام الخلفية (سيتم تفعيلها لاحقاً)
         # Initialize and start scheduler
-        scheduler = None
+        # scheduler = None
 
         # Start scheduler as background task
-        async def post_init(application):
-            nonlocal scheduler
-            scheduler = MessageScheduler(application)
-            asyncio.create_task(scheduler.start_scheduler())
+        # async def post_init(application):
+        #     nonlocal scheduler
+        #     scheduler = MessageScheduler(application)
+        #     asyncio.create_task(scheduler.start_scheduler())
 
-        app.post_init = post_init
-        logger.info("Message scheduler enabled and will start after bot initialization")
+        # app.post_init = post_init
+        # logger.info("Message scheduler enabled and will start after bot initialization")
 
         # تشغيل البوت
         logger.info("Bot started polling...")
