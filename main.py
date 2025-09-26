@@ -4,14 +4,16 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from database import Database
+from moderation import ModerationSystem
 
 # تحميل متغيرات البيئة من ملف .env
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
-# إعداد قاعدة البيانات
+# إعداد قاعدة البيانات ونظام الإشراف
 db = Database()
+moderation = ModerationSystem()
 
 # إعداد نظام السجلات
 logging.basicConfig(
@@ -22,22 +24,29 @@ logger = logging.getLogger(__name__)
 
 # هذا هو الأمر الذي سيتم تشغيله عند إضافة البوت إلى مجموعة أو عند كتابة /start
 async def start_command(update: Update, context):
+    logger.info(f"Start command received from user {update.effective_user.id}")
+
     keyboard = [
         [InlineKeyboardButton("إذا كنت عميل اضغط هنا", callback_data='client_button')],
         [InlineKeyboardButton("كابتن اضغط هنا", callback_data='captain_button')],
         [InlineKeyboardButton("الاشتراك", callback_data='subscribe_button'), InlineKeyboardButton("تنبيه ⚠️", callback_data='warning_button')],
-        [InlineKeyboardButton("الإدارة المباشرة", url="t.me/semodbwan")], # استبدل بمعرف المدير
+        [InlineKeyboardButton("الإدارة المباشرة", url="https://t.me/novacompnay")],
         [InlineKeyboardButton("الاستفسار عن باقات إعلاناتكم", callback_data='ads_button')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+
     # إضافة المستخدم إلى قاعدة البيانات
     user = update.effective_user
-    db.add_user(
-        user_id=user.id,
-        username=user.username,
-        first_name=user.first_name,
-        last_name=user.last_name
-    )
+    try:
+        db.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name
+        )
+        logger.info(f"User {user.id} added to database")
+    except Exception as e:
+        logger.error(f"Failed to add user to database: {e}")
 
     await update.message.reply_text(
         'أهلاً بكم في مجموعة "مشاوير مكة اليومية"!\n\nاختر نوع حسابك للمتابعة:',
@@ -51,30 +60,69 @@ async def button_callback(update: Update, context):
 
     user_id = query.from_user.id
     data = query.data
+    logger.info(f"Button callback received: {data} from user {user_id}")
 
     if data == 'client_button':
         db.update_user_type(user_id, 'client')
-        keyboard = [
-            [InlineKeyboardButton("طلب رحلة 🚗", callback_data='request_ride')],
-            [InlineKeyboardButton("رحلاتي السابقة 📋", callback_data='my_rides')],
-            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            "مرحباً بك كعميل! 👤\n\nيمكنك الآن طلب رحلة أو مراجعة رحلاتك السابقة:",
-            reply_markup=reply_markup
-        )
+
+        # إرسال رسالة خاصة للعميل مع النموذج
+        client_form = """حياك الله عميلنا العزيز،
+
+قم بتعبئة النموذج التالي لوضوح التفاصيل وتوفير سائق مناسب:
+
+مطلوب سائق (شهري)
+
+👥 عدد الأشخاص:
+🏠 مكان المنزل:
+🏢 مكان الدوام:
+🕐 وقت حضور السائق للمنزل:
+🕘 وقت بداية الدوام:
+🕕 وقت انتهاء الدوام:
+🔄 دوام ثابت ولا شفتات:
+📅 عدد أيام الدوام:
+💰 السعر المقترح:
+
+المواقع:
+📍 لوكيشن العمل:
+📍 لوكيشن البيت:
+
+➡️ ملاحظات إضافية:"""
+
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=client_form
+            )
+            await query.edit_message_text(
+                "تم إرسال نموذج طلب السائق إلى رسائلك الخاصة 📩\n\nقم بتعبئة النموذج وإرساله في المجموعة بعد التعبئة."
+            )
+        except Exception as e:
+            await query.edit_message_text(
+                "عذراً، لم أتمكن من إرسال رسالة خاصة لك.\n\nتأكد من أنك بدأت محادثة مع البوت أولاً بالضغط على /start في الرسائل الخاصة."
+            )
 
     elif data == 'captain_button':
         db.update_user_type(user_id, 'captain')
+
+        captain_rules = """عزيزي الكابتن، لا تعرض نفسك للكتم أو الحظر.
+
+❌ ممنوع عرض مكان تواجدك (يُستثنى من ذلك المشتركون في خدمة "كابتن مشترك").
+❌ ممنوع الإعلانات داخل المجموعة.
+❌ ممنوع النقاشات الجانبية.
+❌ الاتفاق يتم مع العميل في الخاص فقط.
+❌ المنسقين: ممنوع إعطاء أي مشوار لسائق ما لم يؤشر على المشوار بكلمة "هات" أو "خاص".
+
+✅ الاشتراك في القروب (10 ريال) لمدة شهر.
+
+برجاء الالتزام بالقوانين حتى لا تعرض نفسك للحظر."""
+
         keyboard = [
-            [InlineKeyboardButton("عرض الرحلات المتاحة 🔍", callback_data='view_rides')],
-            [InlineKeyboardButton("رحلاتي ككابتن 📊", callback_data='captain_rides')],
+            [InlineKeyboardButton("للاشتراك اضغط هنا 💳", url="https://t.me/novacompnay")],
             [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "مرحباً بك ككابتن! 🚖\n\nيمكنك الآن عرض الرحلات المتاحة أو مراجعة رحلاتك:",
+            captain_rules,
             reply_markup=reply_markup
         )
 
@@ -121,33 +169,51 @@ async def button_callback(update: Update, context):
             await query.edit_message_text("عذراً، هذه الرحلة لم تعد متاحة 😔")
 
     elif data == 'subscribe_button':
+        subscription_message = """لالشتراك في المجموعة، يرجى التواصل مع الإدارة عبر المعرف التالي:
+
+@novacompnay"""
+
+        keyboard = [
+            [InlineKeyboardButton("التواصل مع الإدارة 📞", url="https://t.me/novacompnay")],
+            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "خدمة الاشتراك 💳\n\n"
-            "للاشتراك في خدماتنا المميزة:\n"
-            "• رحلات مخفضة السعر\n"
-            "• أولوية في قبول الرحلات\n"
-            "• دعم فني متقدم\n\n"
-            "للمزيد من المعلومات، تواصل مع الإدارة."
+            subscription_message,
+            reply_markup=reply_markup
         )
 
     elif data == 'warning_button':
+        warning_message = """⚠️ تنبيه الأسعار ⚠️
+
+نتمنى من جميع العملاء عدم بخس الأسعار في الخاص أو العام.
+
+ونتمنى من جميع السائقين عدم استقبال المشاوير بأسعار بخسة. إذا كان لك رزق ستأخذه. حتى وإن كنت متجهاً على نفس الطريق، لا تأخذ المشوار بسعر بخس، لأن العميل قد يعتقد أن هذا هو السعر المعتاد في المرات القادمة.
+
+نأمل الالتزام من الجميع وشاكرين ومقدرين لتعاونكم."""
+
+        keyboard = [
+            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "تنبيه مهم ⚠️\n\n"
-            "• تأكد من صحة المعلومات قبل الموافقة على الرحلة\n"
-            "• لا تتردد في التواصل مع الإدارة في حالة وجود مشكلة\n"
-            "• احرص على سلامتك أولاً\n"
-            "• تأكد من هوية الطرف الآخر\n\n"
-            "مع تحيات إدارة مشاوير مكة"
+            warning_message,
+            reply_markup=reply_markup
         )
 
     elif data == 'ads_button':
+        ads_message = """الاستفسار عن باقات إعلاناتكم 📢
+
+للاستفسار عن باقات الإعلانات المدفوعة والأسعار، يرجى التواصل مع الإدارة مباشرة."""
+
+        keyboard = [
+            [InlineKeyboardButton("التواصل مع الإدارة 📞", url="https://t.me/novacompnay")],
+            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "باقات الإعلانات 📢\n\n"
-            "لدينا عدة باقات إعلانية مناسبة لجميع الاحتياجات:\n\n"
-            "• الباقة الأساسية: 50 ريال/أسبوع\n"
-            "• الباقة المتقدمة: 150 ريال/شهر\n"
-            "• الباقة المميزة: 400 ريال/3 أشهر\n\n"
-            "للمزيد من التفاصيل تواصل مع الإدارة المباشرة."
+            ads_message,
+            reply_markup=reply_markup
         )
 
     elif data == 'main_menu':
@@ -155,7 +221,7 @@ async def button_callback(update: Update, context):
             [InlineKeyboardButton("إذا كنت عميل اضغط هنا", callback_data='client_button')],
             [InlineKeyboardButton("كابتن اضغط هنا", callback_data='captain_button')],
             [InlineKeyboardButton("الاشتراك", callback_data='subscribe_button'), InlineKeyboardButton("تنبيه ⚠️", callback_data='warning_button')],
-            [InlineKeyboardButton("الإدارة المباشرة", url="t.me/semodbwan")],
+            [InlineKeyboardButton("الإدارة المباشرة", url="t.me/novacompnay")],
             [InlineKeyboardButton("الاستفسار عن باقات إعلاناتكم", callback_data='ads_button')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -243,6 +309,131 @@ async def text_handler(update: Update, context):
         else:
             await update.message.reply_text("حدث خطأ في إنشاء الرحلة. يرجى المحاولة مرة أخرى.")
 
+# معالج رسائل المجموعة للإشراف على المحتوى
+async def group_message_handler(update: Update, context):
+    """معالج رسائل المجموعة للإشراف على المحتوى"""
+    if not update.message or not update.message.text:
+        return
+
+    message = update.message
+    user_id = message.from_user.id
+    chat_id = message.chat_id
+    message_text = message.text
+
+    # فحص المحتوى المخالف
+    if moderation.check_message_content(message_text):
+        try:
+            # حذف الرسالة المخالفة
+            await message.delete()
+
+            # إضافة تحذير للمستخدم
+            moderation.add_user_warning(
+                user_id=user_id,
+                reason="محتوى مخالف",
+                warned_by=context.bot.id
+            )
+
+            # فحص إذا كان يجب حظر المستخدم
+            if moderation.should_ban_user(user_id):
+                try:
+                    await context.bot.ban_chat_member(chat_id, user_id)
+                    await context.bot.send_message(
+                        chat_id,
+                        f"تم حظر المستخدم {message.from_user.first_name} لانتهاك قوانين المجموعة متكرراً."
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to ban user {user_id}: {e}")
+            else:
+                # إرسال تحذير للمستخدم
+                warnings_count = moderation.get_user_warnings_count(user_id)
+                await context.bot.send_message(
+                    chat_id,
+                    f"تحذير: {message.from_user.first_name}\n"
+                    f"تم حذف رسالتك لانتهاك قوانين المجموعة.\n"
+                    f"عدد التحذيرات: {warnings_count}/3"
+                )
+
+        except Exception as e:
+            logger.error(f"Moderation error: {e}")
+
+# أوامر الإدارة
+async def add_banned_word_command(update: Update, context):
+    """إضافة كلمة محظورة"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("استخدم: /add_banned_word <الكلمة>")
+        return
+
+    word = " ".join(context.args)
+    if moderation.add_banned_word(word, update.effective_user.id):
+        await update.message.reply_text(f"تم إضافة الكلمة '{word}' إلى قائمة الكلمات المحظورة.")
+    else:
+        await update.message.reply_text("حدث خطأ في إضافة الكلمة.")
+
+async def remove_banned_word_command(update: Update, context):
+    """إزالة كلمة من قائمة المحظورات"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("استخدم: /remove_banned_word <الكلمة>")
+        return
+
+    word = " ".join(context.args)
+    if moderation.remove_banned_word(word):
+        await update.message.reply_text(f"تم إزالة الكلمة '{word}' من قائمة الكلمات المحظورة.")
+    else:
+        await update.message.reply_text("الكلمة غير موجودة في القائمة.")
+
+async def list_banned_words_command(update: Update, context):
+    """عرض قائمة الكلمات المحظورة"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    banned_words = moderation.get_banned_words_list()
+    if banned_words:
+        words_list = "\n".join(f"• {word}" for word in banned_words)
+        await update.message.reply_text(f"الكلمات المحظورة:\n\n{words_list}")
+    else:
+        await update.message.reply_text("لا توجد كلمات محظورة.")
+
+async def schedule_message_command(update: Update, context):
+    """جدولة رسالة متكررة"""
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        return
+
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "استخدم: /schedule <ساعات_التكرار> <أيام_المدة> <نص_الرسالة>\n"
+            "مثال: /schedule 5 7 مرحباً بكم في مجموعة مشاوير مكة"
+        )
+        return
+
+    try:
+        interval_hours = int(context.args[0])
+        duration_days = int(context.args[1])
+        message_text = " ".join(context.args[2:])
+
+        if moderation.schedule_message(
+            chat_id=update.effective_chat.id,
+            message_text=message_text,
+            interval_hours=interval_hours,
+            duration_days=duration_days,
+            created_by=update.effective_user.id
+        ):
+            await update.message.reply_text(
+                f"تم جدولة الرسالة بنجاح!\n"
+                f"التكرار: كل {interval_hours} ساعة\n"
+                f"المدة: {duration_days} يوم"
+            )
+        else:
+            await update.message.reply_text("حدث خطأ في جدولة الرسالة.")
+
+    except ValueError:
+        await update.message.reply_text("يرجى إدخال أرقام صحيحة للساعات والأيام.")
+
 async def error_handler(update: Update, context):
     """معالج الأخطاء العام"""
     logger.error(f"Exception while handling an update: {context.error}")
@@ -269,14 +460,29 @@ def main():
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CallbackQueryHandler(button_callback))
         app.add_handler(MessageHandler(filters.LOCATION, location_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+
+        # أوامر الإدارة
+        app.add_handler(CommandHandler("add_banned_word", add_banned_word_command))
+        app.add_handler(CommandHandler("remove_banned_word", remove_banned_word_command))
+        app.add_handler(CommandHandler("list_banned_words", list_banned_words_command))
+        app.add_handler(CommandHandler("schedule", schedule_message_command))
+
+        # معالج رسائل المجموعة (للإشراف)
+        app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, group_message_handler))
+
+        # معالج الرسائل الخاصة
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, text_handler))
 
         # إضافة معالج الأخطاء
         app.add_error_handler(error_handler)
 
+        # تعطيل المجدولة مؤقتاً للتركيز على الوظائف الأساسية
+        logger.info("Scheduled messages feature temporarily disabled")
+
         # تشغيل البوت
         logger.info("Bot started polling...")
         print("Polling...")
+
         app.run_polling(drop_pending_updates=True)
 
     except Exception as e:
