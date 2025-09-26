@@ -16,24 +16,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 CAPTAIN_GROUP_ID = os.getenv("CAPTAIN_GROUP_ID")
-
-# التحقق من متغيرات البيئة الأساسية
-if not all([BOT_TOKEN, ADMIN_CHAT_ID, CAPTAIN_GROUP_ID]):
-    missing_vars = [var for var, val in {
-        "BOT_TOKEN": BOT_TOKEN,
-        "ADMIN_CHAT_ID": ADMIN_CHAT_ID,
-        "CAPTAIN_GROUP_ID": CAPTAIN_GROUP_ID
-    }.items() if not val]
-    logger.error(f"Missing critical environment variables: {', '.join(missing_vars)}")
-    exit(f"Error: Missing environment variables: {', '.join(missing_vars)}")
-
-# تحويل المعرفات إلى أرقام
-try:
-    ADMIN_CHAT_ID = int(ADMIN_CHAT_ID)
-    CAPTAIN_GROUP_ID = int(CAPTAIN_GROUP_ID)
-except (ValueError, TypeError) as e:
-    logger.error(f"Invalid format for ADMIN_CHAT_ID or CAPTAIN_GROUP_ID. They must be integers. Error: {e}")
-    exit(f"Error: Invalid chat ID format. {e}")
+CAPTAIN_GROUP_ID = os.getenv("CAPTAIN_GROUP_ID")
 
 # إعداد قاعدة البيانات ونظام الإشراف
 db = Database()
