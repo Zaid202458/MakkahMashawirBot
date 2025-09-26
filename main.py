@@ -6,6 +6,7 @@ import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.error import BadRequest
 from database import Database
 from moderation import ModerationSystem
 from scheduler import MessageScheduler
@@ -426,7 +427,7 @@ async def button_callback(update: Update, context):
                     InlineKeyboardButton("💰 25 ريال", callback_data=f'ride_amount_25_{ride_id}')
                 ],
                 [InlineKeyboardButton("💰 30 ريال", callback_data=f'ride_amount_30_{ride_id}')],
-                [InlineKeyboardButton("🔙 رجوع للخلف", callback_data='my_rides')]
+                [InlineKeyboardButton("العودة ↩️", callback_data='my_rides')]
             ])
         )
 
@@ -459,7 +460,7 @@ async def button_callback(update: Update, context):
                     [InlineKeyboardButton("💵 دفع نقدي للكابتن ⭐ (الأسرع والأفضل)", callback_data=f'payment_method_cash_{request_id}')],
                     [InlineKeyboardButton("📱 STC Pay", callback_data=f'payment_method_stc_{request_id}'), InlineKeyboardButton("🏦 الراجحي", callback_data=f'payment_method_bank_{request_id}')],
                     [InlineKeyboardButton("💰 urpay", callback_data=f'payment_method_urpay_{request_id}'), InlineKeyboardButton("💳 مدى MADA", callback_data=f'payment_method_mada_{request_id}')],
-                    [InlineKeyboardButton("🔙 رجوع للخلف", callback_data='my_rides')]
+                    [InlineKeyboardButton("العودة ↩️", callback_data='my_rides')]
                 ])
             )
         else:
@@ -614,7 +615,7 @@ async def button_callback(update: Update, context):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ تم الدفع نقداً للكابتن 💵", callback_data=f'cash_paid_{request_id}')],
                     [InlineKeyboardButton("🔄 تغيير طريقة الدفع", callback_data=f'pay_ride_{payment_request.get("ride_id", "")}'  if payment_request.get('payment_type') == 'ride_payment' else 'pay_subscription')],
-                    [InlineKeyboardButton("🔙 رجوع للخلف", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
+                    [InlineKeyboardButton("العودة ↩️", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
                 ])
             )
         else:
@@ -629,7 +630,7 @@ async def button_callback(update: Update, context):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ تم الدفع - إرسال الإثبات", callback_data=f'payment_proof_{request_id}_{payment_method}')],
                     [InlineKeyboardButton("🔄 تغيير طريقة الدفع", callback_data=f'pay_ride_{payment_request.get("ride_id", "")}' if payment_request.get('payment_type') == 'ride_payment' else 'pay_subscription')],
-                    [InlineKeyboardButton("❌ إلغاء", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
+                    [InlineKeyboardButton("العودة ↩️", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
                 ])
             )
 
@@ -723,7 +724,7 @@ async def button_callback(update: Update, context):
             "⏰ سيتم مراجعة الدفع خلال 24 ساعة كحد أقصى\n\n"
             "💡 نصيحة: اضغط على الصورة ثم اختر 'إرسال كصورة' وليس كملف",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ إلغاء العملية", callback_data='captain_button')]
+                [InlineKeyboardButton("❌ إلغاء", callback_data='captain_button')]
             ])
         )
 
@@ -768,10 +769,18 @@ async def button_callback(update: Update, context):
             [InlineKeyboardButton("العودة ↩️", callback_data='captain_button')]
         ]
 
-        await query.edit_message_text(
-            message,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await query.edit_message_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                logger.info("Payment list not modified, skipping update.")
+                await query.answer("لا توجد تحديثات.")
+            else:
+                logger.error(f"Error updating payment list: {e}")
+                raise
 
     elif data == 'subscribe_button':
         subscription_message = """لالشتراك في المجموعة، يرجى التواصل مع الإدارة عبر المعرف التالي:
@@ -780,7 +789,7 @@ async def button_callback(update: Update, context):
 
         keyboard = [
             [InlineKeyboardButton("التواصل مع الإدارة 📞", url="https://t.me/novacompnay")],
-            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data='main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -798,7 +807,7 @@ async def button_callback(update: Update, context):
 نأمل الالتزام من الجميع وشاكرين ومقدرين لتعاونكم."""
 
         keyboard = [
-            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data='main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -813,7 +822,7 @@ async def button_callback(update: Update, context):
 
         keyboard = [
             [InlineKeyboardButton("التواصل مع الإدارة 📞", url="https://t.me/novacompnay")],
-            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data='main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -823,11 +832,11 @@ async def button_callback(update: Update, context):
 
     elif data == 'main_menu':
         keyboard = [
-            [InlineKeyboardButton("إذا كنت عميل اضغط هنا", callback_data='client_button')],
-            [InlineKeyboardButton("كابتن اضغط هنا", callback_data='captain_button')],
-            [InlineKeyboardButton("الاشتراك", callback_data='subscribe_button'), InlineKeyboardButton("تنبيه ⚠️", callback_data='warning_button')],
-            [InlineKeyboardButton("الإدارة المباشرة", url="t.me/novacompnay")],
-            [InlineKeyboardButton("الاستفسار عن باقات إعلاناتكم", callback_data='ads_button')]
+            [InlineKeyboardButton("🧑‍💼 أريد طلب رحلة (عميل)", callback_data='client_button')],
+            [InlineKeyboardButton("🚗 أريد توصيل الناس (كابتن)", callback_data='captain_button')],
+            [InlineKeyboardButton("💳 اشتراك الكباتن", callback_data='subscribe_button'), InlineKeyboardButton("⚠️ تنبيه مهم", callback_data='warning_button')],
+            [InlineKeyboardButton("📞 التواصل مع الإدارة", url="https://t.me/novacompnay")],
+            [InlineKeyboardButton("📢 الاستفسار عن باقات الإعلانات", callback_data='ads_button')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(

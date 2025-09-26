@@ -96,7 +96,7 @@ class Database:
                     payment_type TEXT CHECK(payment_type IN ('ride_payment', 'subscription_payment')),
                     amount REAL NOT NULL,
                     currency TEXT DEFAULT 'SAR',
-                    payment_method TEXT CHECK(payment_method IN ('cash', 'bank_transfer', 'stc_pay', 'urpay', 'mada')),
+                    payment_method TEXT CHECK(payment_method IN ('cash', 'bank', 'stc', 'urpay', 'mada')),
                     payment_status TEXT CHECK(payment_status IN ('pending', 'completed', 'failed', 'refunded')) DEFAULT 'pending',
                     transaction_id TEXT,
                     payment_proof_url TEXT,
