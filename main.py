@@ -47,11 +47,11 @@ async def start_command(update: Update, context):
     logger.info(f"Start command received from user {update.effective_user.id}")
 
     keyboard = [
-        [InlineKeyboardButton("إذا كنت عميل اضغط هنا", callback_data='client_button')],
-        [InlineKeyboardButton("كابتن اضغط هنا", callback_data='captain_button')],
-        [InlineKeyboardButton("الاشتراك", callback_data='subscribe_button'), InlineKeyboardButton("تنبيه ⚠️", callback_data='warning_button')],
-        [InlineKeyboardButton("الإدارة المباشرة", url="https://t.me/novacompnay")],
-        [InlineKeyboardButton("الاستفسار عن باقات إعلاناتكم", callback_data='ads_button')]
+        [InlineKeyboardButton("🧑‍💼 أريد طلب رحلة (عميل)", callback_data='client_button')],
+        [InlineKeyboardButton("🚗 أريد توصيل الناس (كابتن)", callback_data='captain_button')],
+        [InlineKeyboardButton("💳 اشتراك الكباتن", callback_data='subscribe_button'), InlineKeyboardButton("⚠️ تنبيه مهم", callback_data='warning_button')],
+        [InlineKeyboardButton("📞 التواصل المباشر مع الإدارة", url="https://t.me/novacompnay")],
+        [InlineKeyboardButton("📢 الاستفسار عن باقات الإعلانات", callback_data='ads_button')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -68,9 +68,18 @@ async def start_command(update: Update, context):
     except Exception as e:
         logger.error(f"Failed to add user to database: {e}")
 
+    welcome_message = """🕋 **أهلاً وسهلاً بكم في بوت مشاوير مكة اليومية** 🕋
+
+🚗 منصتكم المتكاملة للتنقل في مكة المكرمة
+⚡ رحلات سريعة وآمنة على مدار الساعة
+💯 خدمة موثوقة ومضمونة
+
+👇 **اختر نوع حسابك للمتابعة:**"""
+
     await update.message.reply_text(
-        'أهلاً بكم في مجموعة "مشاوير مكة اليومية"!\n\nاختر نوع حسابك للمتابعة:',
-        reply_markup=reply_markup
+        welcome_message,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 # معالج الأزرار التفاعلية
@@ -121,9 +130,9 @@ async def button_callback(update: Update, context):
                 "قم بتعبئة النموذج وإرساله هنا في الرسائل الخاصة، أو انسخه وأرسله في المجموعة.\n\n"
                 "أو يمكنك طلب رحلة فورية:",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("طلب رحلة فورية 🚗", callback_data='request_ride')
+                    InlineKeyboardButton("🚗 طلب رحلة فورية", callback_data='request_ride')
                 ], [
-                    InlineKeyboardButton("رحلاتي 📋", callback_data='my_rides')
+                    InlineKeyboardButton("📋 متابعة رحلاتي", callback_data='my_rides')
                 ]])
             )
         except Exception as e:
@@ -147,11 +156,11 @@ async def button_callback(update: Update, context):
 برجاء الالتزام بالقوانين حتى لا تعرض نفسك للحظر."""
 
         keyboard = [
-            [InlineKeyboardButton("عرض الرحلات المتاحة 🚖", callback_data='view_rides')],
-            [InlineKeyboardButton("رحلاتي النشطة 📋", callback_data='my_active_rides')],
-            [InlineKeyboardButton("💳 دفع الاشتراك", callback_data='pay_subscription')],
-            [InlineKeyboardButton("📊 حالة الدفعات", callback_data='my_payments')],
-            [InlineKeyboardButton("العودة للقائمة الرئيسية ↩️", callback_data='main_menu')]
+            [InlineKeyboardButton("🚖 عرض الرحلات المتاحة", callback_data='view_rides')],
+            [InlineKeyboardButton("📋 رحلاتي النشطة", callback_data='my_active_rides')],
+            [InlineKeyboardButton("💳 اشتراك الكباتن (10 ريال/شهر)", callback_data='pay_subscription')],
+            [InlineKeyboardButton("📊 حالة الدفعات والاشتراك", callback_data='my_payments')],
+            [InlineKeyboardButton("🏠 العودة للقائمة الرئيسية", callback_data='main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -216,7 +225,7 @@ async def button_callback(update: Update, context):
             message += f"👤 العميل: {ride['first_name']}\n\n"
 
             keyboard.append([InlineKeyboardButton(
-                f"قبول الرحلة #{ride['ride_id']} ✅",
+                f"✅ قبول الرحلة #{ride['ride_id']} 🚗",
                 callback_data=f"accept_ride_{ride['ride_id']}"
             )])
 
@@ -289,7 +298,7 @@ async def button_callback(update: Update, context):
                 )])
             elif ride['status'] == 'in_progress':
                 keyboard.append([InlineKeyboardButton(
-                    f"إنهاء الرحلة #{ride['ride_id']} ✅",
+                    f"🏁 إنهاء الرحلة #{ride['ride_id']} ✅",
                     callback_data=f"complete_ride_{ride['ride_id']}"
                 )])
 
@@ -351,14 +360,17 @@ async def button_callback(update: Update, context):
                     f"نتمنى أن تكون قد استمتعت بالرحلة.\n"
                     f"يمكنك تقييم الكابتن ودفع قيمة الرحلة:",
                     reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🌟 قييم الكابتن 🌟", callback_data=f"rate_info_{ride_id}")],
                         [
-                            InlineKeyboardButton("⭐", callback_data=f"rate_1_{ride_id}_{user_id}"),
-                            InlineKeyboardButton("⭐⭐", callback_data=f"rate_2_{ride_id}_{user_id}"),
-                            InlineKeyboardButton("⭐⭐⭐", callback_data=f"rate_3_{ride_id}_{user_id}"),
-                            InlineKeyboardButton("⭐⭐⭐⭐", callback_data=f"rate_4_{ride_id}_{user_id}"),
-                            InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data=f"rate_5_{ride_id}_{user_id}")
+                            InlineKeyboardButton("1⭐", callback_data=f"rate_1_{ride_id}_{user_id}"),
+                            InlineKeyboardButton("2⭐⭐", callback_data=f"rate_2_{ride_id}_{user_id}"),
+                            InlineKeyboardButton("3⭐⭐⭐", callback_data=f"rate_3_{ride_id}_{user_id}")
                         ],
-                        [InlineKeyboardButton("💳 دفع قيمة الرحلة", callback_data=f"pay_ride_{ride_id}")]
+                        [
+                            InlineKeyboardButton("4⭐⭐⭐⭐", callback_data=f"rate_4_{ride_id}_{user_id}"),
+                            InlineKeyboardButton("5⭐⭐⭐⭐⭐", callback_data=f"rate_5_{ride_id}_{user_id}")
+                        ],
+                        [InlineKeyboardButton("💰 ادفع للكابتن الآن", callback_data=f"pay_ride_{ride_id}")]
                     ])
                 )
             except Exception as e:
@@ -405,12 +417,16 @@ async def button_callback(update: Update, context):
             f"👤 الكابتن: {ride['captain_name'] or 'غير محدد'}\n\n"
             f"💰 يرجى إدخال قيمة الرحلة المتفق عليها مع الكابتن:",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("10 ريال", callback_data=f'ride_amount_10_{ride_id}')],
-                [InlineKeyboardButton("15 ريال", callback_data=f'ride_amount_15_{ride_id}')],
-                [InlineKeyboardButton("20 ريال", callback_data=f'ride_amount_20_{ride_id}')],
-                [InlineKeyboardButton("25 ريال", callback_data=f'ride_amount_25_{ride_id}')],
-                [InlineKeyboardButton("30 ريال", callback_data=f'ride_amount_30_{ride_id}')],
-                [InlineKeyboardButton("❌ إلغاء", callback_data='my_rides')]
+                [
+                    InlineKeyboardButton("💰 10 ريال", callback_data=f'ride_amount_10_{ride_id}'),
+                    InlineKeyboardButton("💰 15 ريال", callback_data=f'ride_amount_15_{ride_id}')
+                ],
+                [
+                    InlineKeyboardButton("💰 20 ريال", callback_data=f'ride_amount_20_{ride_id}'),
+                    InlineKeyboardButton("💰 25 ريال", callback_data=f'ride_amount_25_{ride_id}')
+                ],
+                [InlineKeyboardButton("💰 30 ريال", callback_data=f'ride_amount_30_{ride_id}')],
+                [InlineKeyboardButton("🔙 رجوع للخلف", callback_data='my_rides')]
             ])
         )
 
@@ -440,12 +456,10 @@ async def button_callback(update: Update, context):
                 f"🚗 الرحلة: #{ride_id}\n\n"
                 f"اختر طريقة الدفع:",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💵 دفع نقدي للكابتن (الأفضل)", callback_data=f'payment_method_cash_{request_id}')],
-                    [InlineKeyboardButton("💳 STC Pay", callback_data=f'payment_method_stc_{request_id}')],
-                    [InlineKeyboardButton("🏦 حوالة بنكية", callback_data=f'payment_method_bank_{request_id}')],
-                    [InlineKeyboardButton("💰 يور باي urpay", callback_data=f'payment_method_urpay_{request_id}')],
-                    [InlineKeyboardButton("💳 مدى MADA", callback_data=f'payment_method_mada_{request_id}')],
-                    [InlineKeyboardButton("❌ إلغاء", callback_data='my_rides')]
+                    [InlineKeyboardButton("💵 دفع نقدي للكابتن ⭐ (الأسرع والأفضل)", callback_data=f'payment_method_cash_{request_id}')],
+                    [InlineKeyboardButton("📱 STC Pay", callback_data=f'payment_method_stc_{request_id}'), InlineKeyboardButton("🏦 الراجحي", callback_data=f'payment_method_bank_{request_id}')],
+                    [InlineKeyboardButton("💰 urpay", callback_data=f'payment_method_urpay_{request_id}'), InlineKeyboardButton("💳 مدى MADA", callback_data=f'payment_method_mada_{request_id}')],
+                    [InlineKeyboardButton("🔙 رجوع للخلف", callback_data='my_rides')]
                 ])
             )
         else:
@@ -598,9 +612,9 @@ async def button_callback(update: Update, context):
                 f"{info['instructions']}\n\n"
                 f"✅ بعد دفع المبلغ للكابتن، اضغط 'تم الدفع' للتأكيد",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ تم الدفع نقداً", callback_data=f'cash_paid_{request_id}')],
+                    [InlineKeyboardButton("✅ تم الدفع نقداً للكابتن 💵", callback_data=f'cash_paid_{request_id}')],
                     [InlineKeyboardButton("🔄 تغيير طريقة الدفع", callback_data=f'pay_ride_{payment_request.get("ride_id", "")}'  if payment_request.get('payment_type') == 'ride_payment' else 'pay_subscription')],
-                    [InlineKeyboardButton("❌ إلغاء", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
+                    [InlineKeyboardButton("🔙 رجوع للخلف", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
                 ])
             )
         else:
