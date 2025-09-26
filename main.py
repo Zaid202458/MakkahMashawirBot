@@ -15,6 +15,7 @@ from scheduler import MessageScheduler
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+CAPTAIN_GROUP_ID = int(os.getenv("CAPTAIN_GROUP_ID"))
 
 # إعداد قاعدة البيانات ونظام الإشراف
 db = Database()
@@ -265,6 +266,59 @@ async def button_callback(update: Update, context):
                 logger.error(f"Failed to notify client: {e}")
         else:
             await query.edit_message_text("عذراً، هذه الرحلة لم تعد متاحة 😔")
+
+    elif data.startswith('publish_request_'):
+        request_id = int(data.split('_')[2])
+        
+        # التأكد من أن المستخدم هو المدير
+        if str(user_id) != ADMIN_CHAT_ID:
+            await query.answer("هذا الإجراء مخصص للمدير فقط.", show_alert=True)
+            return
+
+        monthly_request = db.get_monthly_request(request_id)
+        if not monthly_request:
+            await query.edit_message_text("❌ لم يتم العثور على الطلب.")
+            return
+
+        if monthly_request['status'] == 'published':
+            await query.answer("✅ تم نشر هذا الطلب مسبقاً.", show_alert=True)
+            return
+            
+        # تجهيز الرسالة للنشر في مجموعة الكباتن
+        captain_message = f"""📢 **طلب توصيل شهري جديد** 📢
+        
+{monthly_request['request_details']}
+"""
+
+        try:
+            # نشر الرسالة في مجموعة الكباتن
+            if not CAPTAIN_GROUP_ID:
+                await query.edit_message_text("❌ لم يتم تعيين مجموعة الكباتن. يرجى تعيين CAPTAIN_GROUP_ID في ملف .env")
+                return
+                
+            await context.bot.send_message(
+                chat_id=CAPTAIN_GROUP_ID,
+                text=captain_message,
+                parse_mode='Markdown'
+            )
+
+            # تحديث حالة الطلب في قاعدة البيانات
+            db.update_monthly_request_status(request_id, 'published')
+            
+            # تحديث رسالة المدير
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ تم النشر بنجاح", callback_data='dummy')],
+                [InlineKeyboardButton("📝 إغلاق الطلب", callback_data=f'close_request_{request_id}')]
+            ])
+            await query.edit_message_text(
+                text=query.message.text,
+                reply_markup=keyboard
+            )
+            await query.answer("✅ تم نشر الطلب في مجموعة الكباتن بنجاح!", show_alert=True)
+
+        except Exception as e:
+            logger.error(f"Failed to publish request to captain's group: {e}")
+            await query.answer(f"❌ حدث خطأ أثناء النشر: {e}", show_alert=True)
 
     elif data == 'my_active_rides':
         active_rides = db.get_captain_active_rides(user_id)
@@ -1020,24 +1074,32 @@ async def text_handler(update: Update, context):
             "يمكنك أيضاً نسخ ولصق النموذج في مجموعة مشاوير مكة لعرضه على جميع الكباتن."
         )
 
+        # حفظ الطلب في قاعدة البيانات
+        request_id = db.add_monthly_request(client_id=user_id, details=text)
+
         # إشعار المدير بالطلب الجديد
-        admin_notification = f"""طلب سائق جديد 🚗
+        if request_id and ADMIN_CHAT_ID:
+            admin_notification = f"""🚗 **طلب سائق شهري جديد**
 
-من: {update.effective_user.first_name} ({update.effective_user.username or 'بدون معرف'})
+من: {update.effective_user.first_name} (@{update.effective_user.username or 'لا يوجد'})
+معرف المستخدم: `{update.effective_user.id}`
+---
+**تفاصيل الطلب:**
+{text}"""
 
-التفاصيل:
-{text}
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 نشر للكباتن", callback_data=f'publish_request_{request_id}')]
+            ])
 
-معرف المستخدم: {update.effective_user.id}"""
-
-        try:
-            if ADMIN_CHAT_ID:
+            try:
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
-                    text=admin_notification
+                    text=admin_notification,
+                    reply_markup=keyboard,
+                    parse_mode='Markdown'
                 )
-        except Exception as e:
-            logger.error(f"Failed to send admin notification: {e}")
+            except Exception as e:
+                logger.error(f"Failed to send admin notification for new request: {e}")
 
         # مسح حالة المستخدم
         context.user_data.clear()
@@ -2035,7 +2097,7 @@ def main():
         logger.info("Bot is starting...")
         print("Bot is starting...")
 
-        from telegram.ext import JobQueue
+
         app = Application.builder().token(BOT_TOKEN).build()
 
         # إضافة الأوامر والمعالجات

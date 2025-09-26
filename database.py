@@ -126,6 +126,19 @@ class Database:
                 )
             """)
 
+            # Monthly driver requests table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS monthly_requests (
+                    request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER,
+                    request_details TEXT NOT NULL,
+                    status TEXT CHECK(status IN ('pending', 'published', 'closed')) DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    published_at TIMESTAMP,
+                    FOREIGN KEY (client_id) REFERENCES users (user_id)
+                )
+            """)
+
             conn.commit()
 
     def add_user(self, user_id: int, username: str, first_name: str,
@@ -585,3 +598,59 @@ class Database:
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             return []
+
+    def add_monthly_request(self, client_id: int, details: str) -> Optional[int]:
+        """Adds a new monthly driver request to the database."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO monthly_requests (client_id, request_details)
+                    VALUES (?, ?)
+                """, (client_id, details))
+                conn.commit()
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            print(f"Database error in add_monthly_request: {e}")
+            return None
+
+    def get_monthly_request(self, request_id: int) -> Optional[Dict[str, Any]]:
+        """Gets a monthly request by its ID."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT r.*, u.first_name, u.username
+                    FROM monthly_requests r
+                    JOIN users u ON r.client_id = u.user_id
+                    WHERE r.request_id = ?
+                """, (request_id,))
+                result = cursor.fetchone()
+                return dict(result) if result else None
+        except sqlite3.Error as e:
+            print(f"Database error in get_monthly_request: {e}")
+            return None
+
+    def update_monthly_request_status(self, request_id: int, status: str) -> bool:
+        """Updates the status of a monthly request and sets published_at if applicable."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                if status == 'published':
+                    cursor.execute("""
+                        UPDATE monthly_requests
+                        SET status = ?, published_at = ?
+                        WHERE request_id = ?
+                    """, (status, datetime.now(), request_id))
+                else:
+                    cursor.execute("""
+                        UPDATE monthly_requests
+                        SET status = ?
+                        WHERE request_id = ?
+                    """, (status, request_id))
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            print(f"Database error in update_monthly_request_status: {e}")
+            return False
