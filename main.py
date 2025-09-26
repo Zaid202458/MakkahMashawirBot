@@ -2139,10 +2139,12 @@ def main():
 
         # بدء جدولة الرسائل والمهام الخلفية (سيتم تفعيلها لاحقاً)
         # Initialize and start scheduler
-        scheduler = MessageScheduler(app)
+        scheduler = None
 
         # Start scheduler as background task
         async def post_init(application):
+            nonlocal scheduler
+            scheduler = MessageScheduler(application)
             asyncio.create_task(scheduler.start_scheduler())
 
         app.post_init = post_init
