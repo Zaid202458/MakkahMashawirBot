@@ -376,7 +376,11 @@ async def button_callback(update: Update, context):
             await query.edit_message_text(
                 f"شكراً لك على التقييم! ⭐\n\n"
                 f"تم إعطاء {rating} نجمة للكابتن.\n"
-                f"تقييمك يساعدنا في تحسين الخدمة."
+                f"تقييمك يساعدنا في تحسين الخدمة.\n\n"
+                f"يمكنك الآن دفع قيمة الرحلة:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💰 دفع قيمة الرحلة", callback_data=f"pay_ride_{ride_id}")]
+                ])
             )
         else:
             await query.edit_message_text("حدث خطأ في حفظ التقييم.")
@@ -436,6 +440,7 @@ async def button_callback(update: Update, context):
                 f"🚗 الرحلة: #{ride_id}\n\n"
                 f"اختر طريقة الدفع:",
                 reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💵 دفع نقدي للكابتن (الأفضل)", callback_data=f'payment_method_cash_{request_id}')],
                     [InlineKeyboardButton("💳 STC Pay", callback_data=f'payment_method_stc_{request_id}')],
                     [InlineKeyboardButton("🏦 حوالة بنكية", callback_data=f'payment_method_bank_{request_id}')],
                     [InlineKeyboardButton("💰 يور باي urpay", callback_data=f'payment_method_urpay_{request_id}')],
@@ -554,6 +559,11 @@ async def button_callback(update: Update, context):
 
         # معلومات الدفع حسب الطريقة
         payment_info = {
+            'cash': {
+                'name': 'الدفع النقدي',
+                'details': '💵 ادفع نقداً للكابتن مباشرة\n✅ الطريقة الأسرع والأسهل',
+                'instructions': 'قم بدفع المبلغ نقداً للكابتن في نهاية الرحلة ثم اضغط "تم الدفع"'
+            },
             'stc': {
                 'name': 'STC Pay',
                 'details': '📱 رقم STC Pay: 0501234567\n👤 باسم: إدارة مشاوير مكة',
@@ -578,19 +588,102 @@ async def button_callback(update: Update, context):
 
         info = payment_info.get(payment_method, payment_info['stc'])
 
-        await query.edit_message_text(
-            f"💳 الدفع عبر {info['name']}\n\n"
-            f"💰 المبلغ المطلوب: {payment_request['amount']} ريال\n\n"
-            f"{info['details']}\n\n"
-            f"📋 التعليمات:\n"
-            f"{info['instructions']}\n\n"
-            f"⚠️ ملاحظة: أرسل إثبات الدفع كصورة في هذه المحادثة",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ تم الدفع - إرسال الإثبات", callback_data=f'payment_proof_{request_id}_{payment_method}')],
-                [InlineKeyboardButton("🔄 تغيير طريقة الدفع", callback_data='pay_subscription')],
-                [InlineKeyboardButton("❌ إلغاء", callback_data='captain_button')]
-            ])
-        )
+        # خاص للدفع النقدي - لا يحتاج إثبات دفع
+        if payment_method == 'cash':
+            await query.edit_message_text(
+                f"💵 {info['name']}\n\n"
+                f"💰 المبلغ المطلوب: {payment_request['amount']} ريال\n\n"
+                f"{info['details']}\n\n"
+                f"📋 التعليمات:\n"
+                f"{info['instructions']}\n\n"
+                f"✅ بعد دفع المبلغ للكابتن، اضغط 'تم الدفع' للتأكيد",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ تم الدفع نقداً", callback_data=f'cash_paid_{request_id}')],
+                    [InlineKeyboardButton("🔄 تغيير طريقة الدفع", callback_data=f'pay_ride_{payment_request.get("ride_id", "")}'  if payment_request.get('payment_type') == 'ride_payment' else 'pay_subscription')],
+                    [InlineKeyboardButton("❌ إلغاء", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
+                ])
+            )
+        else:
+            # الطرق الرقمية - تحتاج إثبات دفع
+            await query.edit_message_text(
+                f"💳 الدفع عبر {info['name']}\n\n"
+                f"💰 المبلغ المطلوب: {payment_request['amount']} ريال\n\n"
+                f"{info['details']}\n\n"
+                f"📋 التعليمات:\n"
+                f"{info['instructions']}\n\n"
+                f"⚠️ ملاحظة: أرسل إثبات الدفع كصورة في هذه المحادثة",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ تم الدفع - إرسال الإثبات", callback_data=f'payment_proof_{request_id}_{payment_method}')],
+                    [InlineKeyboardButton("🔄 تغيير طريقة الدفع", callback_data=f'pay_ride_{payment_request.get("ride_id", "")}' if payment_request.get('payment_type') == 'ride_payment' else 'pay_subscription')],
+                    [InlineKeyboardButton("❌ إلغاء", callback_data='my_rides' if payment_request.get('payment_type') == 'ride_payment' else 'captain_button')]
+                ])
+            )
+
+    elif data.startswith('cash_paid_'):
+        request_id = int(data.split('_')[2])
+        payment_request = db.get_payment_request(request_id)
+
+        if not payment_request or payment_request['user_id'] != user_id:
+            await query.edit_message_text("طلب الدفع غير صحيح أو منتهي الصلاحية.")
+            return
+
+        # إنشاء دفعة نقدية مع تأكيد فوري
+        try:
+            payment_id = db.create_payment_record(
+                user_id=user_id,
+                payment_type=payment_request['payment_type'],
+                amount=payment_request['amount'],
+                payment_method='cash',
+                ride_id=payment_request.get('ride_id'),
+                payment_proof_url=None,  # لا يوجد إثبات للنقد
+                notes=f"Cash payment for {payment_request['payment_type']} - Request ID: {request_id}"
+            )
+            logger.info(f"Created cash payment record with ID: {payment_id} for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error creating cash payment record: {e}")
+            payment_id = None
+
+        if payment_id:
+            # تحديث حالة طلب الدفع
+            db.update_payment_request_status(request_id, 'completed')
+
+            await query.edit_message_text(
+                "✅ تم تأكيد الدفع النقدي!\n\n"
+                "💵 تم استلام الدفع نقداً من الكابتن\n"
+                "🙏 شكراً لاستخدام خدماتنا"
+            )
+
+            # إشعار الإدارة بالدفع النقدي
+            try:
+                ride_info = ""
+                if payment_request.get('ride_id'):
+                    ride_info = f"🚗 رقم الرحلة: {payment_request['ride_id']}\n"
+
+                await context.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"💵 دفع نقدي جديد\n\n"
+                    f"👤 العميل: {update.effective_user.first_name}\n"
+                    f"🆔 معرف العميل: {user_id}\n"
+                    f"💰 المبلغ: {payment_request['amount']} ريال\n"
+                    f"📋 النوع: {payment_request['payment_type']}\n"
+                    f"{ride_info}"
+                    f"🆔 Payment ID: {payment_id}\n\n"
+                    f"✅ تم التأكيد تلقائياً (دفع نقدي)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin about cash payment: {e}")
+
+            # تفعيل الاشتراك إذا كان الدفع للاشتراك
+            if payment_request['payment_type'] == 'subscription':
+                if db.add_subscription(user_id, 30, payment_request['amount']):
+                    await update.effective_user.send_message(
+                        "🎉 تم تفعيل اشتراكك بنجاح!\n\n"
+                        "⏰ مدة الاشتراك: 30 يوم\n"
+                        "✅ يمكنك الآن الوصول لجميع الرحلات المتاحة"
+                    )
+        else:
+            logger.error(f"Failed to create cash payment record for request {request_id}")
+            await query.edit_message_text("حدث خطأ في معالجة الدفع. يرجى المحاولة مرة أخرى.")
 
     elif data.startswith('payment_proof_'):
         parts = data.split('_')
@@ -823,15 +916,20 @@ async def photo_handler(update: Update, context):
         file_id = photo.file_id
 
         # إنشاء سجل دفع
-        payment_id = db.create_payment_record(
-            user_id=user_id,
-            payment_type=payment_request['payment_type'],
-            amount=payment_request['amount'],
-            payment_method=payment_method,
-            ride_id=payment_request.get('ride_id'),
-            payment_proof_url=file_id,
-            notes=f"Payment proof for {payment_request['payment_type']} - Request ID: {request_id}"
-        )
+        try:
+            payment_id = db.create_payment_record(
+                user_id=user_id,
+                payment_type=payment_request['payment_type'],
+                amount=payment_request['amount'],
+                payment_method=payment_method,
+                ride_id=payment_request.get('ride_id'),
+                payment_proof_url=file_id,
+                notes=f"Payment proof for {payment_request['payment_type']} - Request ID: {request_id}"
+            )
+            logger.info(f"Created payment record with ID: {payment_id} for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error creating payment record: {e}")
+            payment_id = None
 
         if payment_id:
             # تحديث حالة طلب الدفع

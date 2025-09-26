@@ -530,7 +530,9 @@ class Database:
                 conn.commit()
                 return cursor.lastrowid
         except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            print(f"Database error in create_payment_record: {e}")
+            import logging
+            logging.error(f"Database error in create_payment_record: {e}")
             return None
 
     def update_payment_status(self, payment_id: int, status: str) -> bool:
