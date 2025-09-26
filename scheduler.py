@@ -1,8 +1,10 @@
 import asyncio
 import logging
 from datetime import datetime
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 from moderation import ModerationSystem
+from database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +12,7 @@ class MessageScheduler:
     def __init__(self, application: Application):
         self.application = application
         self.moderation = ModerationSystem()
+        self.database = Database()
         self.is_running = False
 
     async def start_scheduler(self):
@@ -23,6 +26,7 @@ class MessageScheduler:
         while self.is_running:
             try:
                 await self.send_scheduled_messages()
+                await self.cleanup_expired_subscriptions()
                 # فحص كل 10 دقائق
                 await asyncio.sleep(600)
             except Exception as e:
@@ -56,3 +60,34 @@ class MessageScheduler:
 
         except Exception as e:
             logger.error(f"Error getting scheduled messages: {e}")
+
+    async def cleanup_expired_subscriptions(self):
+        """تنظيف الاشتراكات المنتهية الصلاحية"""
+        try:
+            # الحصول على الاشتراكات المنتهية قبل إلغائها
+            expired_subscriptions = self.database.get_expired_subscriptions()
+
+            # إلغاء الاشتراكات المنتهية
+            deactivated_count = self.database.deactivate_expired_subscriptions()
+
+            if deactivated_count > 0:
+                logger.info(f"Deactivated {deactivated_count} expired subscriptions")
+
+                # إشعار المستخدمين بانتهاء الاشتراك
+                for subscription in expired_subscriptions:
+                    try:
+                        await self.application.bot.send_message(
+                            chat_id=subscription['user_id'],
+                            text="⚠️ انتهت صلاحية اشتراكك\n\n"
+                            "لا يمكنك الآن الوصول للرحلات المتاحة.\n"
+                            "للتجديد، يرجى التواصل مع الإدارة.",
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("للتجديد تواصل مع الإدارة 💳", url="https://t.me/novacompnay")
+                            ]])
+                        )
+                        logger.info(f"Notified user {subscription['user_id']} about expired subscription")
+                    except Exception as e:
+                        logger.error(f"Failed to notify user {subscription['user_id']}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error cleaning up expired subscriptions: {e}")
