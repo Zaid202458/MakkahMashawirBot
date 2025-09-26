@@ -1,3 +1,2 @@
-python-telegram-bot[job-queue]==20.7
+python-telegram-bot[job-queue]==21.1
 python-dotenv==1.0.0
-APScheduler>=4.0.0a1
