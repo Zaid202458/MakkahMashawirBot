@@ -81,4 +81,4 @@ MakkahMashawirBot/
 
 ## الدعم
 
-للمساعدة والدعم، تواصل مع [@novacompnay](https://t.me/novacompnay)
+)
